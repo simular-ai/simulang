@@ -69,6 +69,74 @@ For the REPL or scripts without an explicit path, run
 `simulang which` against any script in the project (or use `simulang --version`
 to find the bundled copy's version and locate it via `npm root -g`).
 
+## Finding examples and tutorials
+
+Before writing a script from scratch, search for working examples first. Use both
+the local recipe tree and the online tutorial — they are complementary.
+
+### 1. Search the Simulang GitHub repo for recipes
+
+The Simulang repository at **https://github.com/simular-ai/simulang** contains
+example scripts and pattern docs. The examples were last known to be at
+`examples/core_patterns/` — but fetch the repo root first to confirm the current
+folder structure before diving in:
+
+```
+https://github.com/simular-ai/simulang/tree/main
+```
+
+Then search within the repo using GitHub's code search for keywords relevant to
+your task (e.g. `grounding`, `otp`, `download`, `file-upload`):
+
+```
+https://github.com/search?q=repo%3Asimular-ai%2Fsimulang+<keyword>&type=code
+```
+
+Each recipe directory contains a `script.js` (runnable) and a `pattern.md` that
+explains context, prerequisites, and pitfalls — read both.
+
+### 2. Fetch the online tutorial (authoritative, always up to date)
+
+The full Simulang Primer at **https://docs.simular.ai/simulang/simulang-primer**
+is a long, chapter-by-chapter tutorial with complete runnable examples. Fetch
+it when the GitHub examples don't cover your task or you need deeper explanation.
+
+To discover every available docs page first:
+
+```
+https://docs.simular.ai/llms.txt
+```
+
+The primer is divided into 16 chapters — use the anchor fragments to jump
+directly to the relevant section rather than reading the whole page:
+
+| Chapter | Anchor |
+| ------- | ------ |
+| Opening an app | `#3-opening-an-app` |
+| First automation (AX tree loop) | `#4-your-first-automation` |
+| The accessibility tree | `#5-the-accessibility-tree` |
+| Acting on elements | `#6-acting-on-elements` |
+| Finding elements (`labelOf`, `pageNodes`) | `#7-finding-the-element-you-want` |
+| Waiting for the UI (`withSnapshot`) | `#8-waiting-for-the-ui` |
+| Debugging (`print the tree`) | `#9-when-things-dont-work` |
+| Complete login/logout example | `#10-a-complete-example` |
+| Mouse/keyboard + vision grounding | `#11-when-accessibility-isnt-enough` |
+| Files, env vars, shelling out | `#12-files-env-vars-and-shelling-out` |
+| Composing / orchestrating scripts | `#13-composing-scripts` |
+| Common pitfalls | `#14-common-pitfalls` |
+
+All docs pages are also available as clean Markdown by appending `.md` to the
+URL, e.g. `https://docs.simular.ai/simulang/simulang-primer.md` — useful when
+fetching programmatically.
+
+### Workflow for writing a new script
+
+1. Search `https://github.com/simular-ai/simulang` for keywords (`/tree/main` to browse, GitHub code search for keyword matches) — any matching recipe?
+2. If yes: read the recipe's `script.js` and `pattern.md`; adapt.
+3. If no: fetch the relevant primer chapter for idiomatic patterns.
+4. Check `simulang which <script>` → read `<path>/CLAUDE.md` for the exact API
+   version in use before finalising the implementation.
+
 ## Authoring scripts
 
 ES modules, top-level await, dynamic imports — all supported. Import simulang-js
