@@ -96,8 +96,8 @@ simulang run <script>
 ## Development
 
 ```bash
-git clone https://github.com/simular-ai/simulang-cli
-cd simulang-cli
+git clone https://github.com/simular-ai/simulang
+cd simulang
 npm install
 npm run build          # tsc → dist/
 npm link               # exposes `simulang` on PATH
