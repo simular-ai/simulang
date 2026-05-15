@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TOTP Demo</title>
+    <style>
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        background: #f0f2f5;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #1a1a2e;
+      }
+
+      .card {
+        background: #fff;
+        border-radius: 12px;
+        box-shadow: 0 4px 24px rgba(0, 0, 0, 0.1);
+        padding: 2.5rem 2rem;
+        width: 100%;
+        max-width: 380px;
+      }
+
+      .logo {
+        text-align: center;
+        margin-bottom: 1.75rem;
+      }
+
+      .logo svg {
+        width: 48px;
+        height: 48px;
+      }
+
+      h1 {
+        font-size: 1.4rem;
+        font-weight: 700;
+        text-align: center;
+        margin-bottom: 0.25rem;
+      }
+
+      .subtitle {
+        text-align: center;
+        font-size: 0.875rem;
+        color: #666;
+        margin-bottom: 1.75rem;
+      }
+
+      label,
+      .label-text {
+        display: block;
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: #444;
+        margin-bottom: 0.35rem;
+        letter-spacing: 0.02em;
+      }
+
+      .field-label {
+        margin-bottom: 0;
+      }
+
+      input {
+        width: 100%;
+        padding: 0.65rem 0.85rem;
+        border: 1.5px solid #d1d5db;
+        border-radius: 8px;
+        font-size: 0.95rem;
+        outline: none;
+        transition: border-color 0.15s;
+        margin-bottom: 1.1rem;
+        background: #fafafa;
+      }
+
+      input:focus {
+        border-color: #4f46e5;
+        background: #fff;
+      }
+
+      .otp-hint {
+        font-size: 0.78rem;
+        color: #888;
+        margin-top: -0.8rem;
+        margin-bottom: 1.1rem;
+      }
+
+      button[type='submit'] {
+        width: 100%;
+        padding: 0.75rem;
+        background: #4f46e5;
+        color: #fff;
+        border: none;
+        border-radius: 8px;
+        font-size: 1rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.15s;
+      }
+
+      button[type='submit']:hover {
+        background: #4338ca;
+      }
+
+      #result {
+        margin-top: 1.25rem;
+        padding: 0.85rem 1rem;
+        border-radius: 8px;
+        font-size: 0.9rem;
+        font-weight: 500;
+        display: none;
+      }
+
+      #result.success {
+        background: #d1fae5;
+        color: #065f46;
+        border: 1px solid #6ee7b7;
+      }
+
+      #result.error {
+        background: #fee2e2;
+        color: #991b1b;
+        border: 1px solid #fca5a5;
+      }
+
+      .secret-note {
+        margin-top: 1.5rem;
+        padding: 0.75rem;
+        background: #f5f3ff;
+        border-radius: 8px;
+        font-size: 0.78rem;
+        color: #6b7280;
+        text-align: center;
+      }
+
+      .secret-note code {
+        font-family: 'SF Mono', 'Fira Code', monospace;
+        color: #4f46e5;
+        font-size: 0.82rem;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="logo">
+        <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect width="48" height="48" rx="12" fill="#4f46e5" />
+          <path
+            d="M24 12C17.373 12 12 17.373 12 24s5.373 12 12 12 12-5.373 12-12S30.627 12 24 12zm0 4a4 4 0 1 1 0 8 4 4 0 0 1 0-8zm0 17c-3.315 0-6.26-1.67-8.03-4.22.04-2.65 5.35-4.11 8.03-4.11 2.67 0 7.98 1.46 8.03 4.11C30.26 31.33 27.315 33 24 33z"
+            fill="white"
+          />
+        </svg>
+      </div>
+
+      <h1>TOTP Demo</h1>
+      <p class="subtitle">Enter the one-time code from your authenticator</p>
+
+      <form id="loginForm" novalidate>
+        <label class="field-label">
+          <span class="label-text">One-Time Password</span>
+          <input
+            type="text"
+            id="otp"
+            name="otp"
+            inputmode="numeric"
+            maxlength="6"
+            placeholder="000000"
+            autocomplete="one-time-code"
+            title="One-Time Password"
+          />
+        </label>
+        <p class="otp-hint">6-digit code from your authenticator</p>
+
+        <button type="submit">Verify</button>
+      </form>
+
+      <div id="result"></div>
+
+      <div class="secret-note">
+        TOTP secret: <code id="secretDisplay">JBSWY3DPEHPK3PXP</code><br />
+        Generate: <code>oathtool --totp --base32 JBSWY3DPEHPK3PXP</code>
+      </div>
+    </div>
+
+    <script>
+      // Minimal RFC 6238 TOTP validator (SHA-1, 6-digit, 30-second step)
+      // Accepts current window and ±1 window for clock skew tolerance.
+      async function validateTotp(secret, candidate) {
+        const base32chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
+        let bits = ''
+        for (const c of secret.toUpperCase().replace(/=+$/, '')) {
+          const idx = base32chars.indexOf(c)
+          if (idx >= 0) bits += idx.toString(2).padStart(5, '0')
+        }
+        const keyBytes = new Uint8Array(Math.floor(bits.length / 8))
+        for (let i = 0; i < keyBytes.length; i++) {
+          keyBytes[i] = parseInt(bits.slice(i * 8, i * 8 + 8), 2)
+        }
+        const cryptoKey = await crypto.subtle.importKey('raw', keyBytes, { name: 'HMAC', hash: 'SHA-1' }, false, [
+          'sign',
+        ])
+        const step = Math.floor(Date.now() / 30000)
+        for (const counter of [step - 1, step, step + 1]) {
+          const msg = new Uint8Array(8)
+          let c = counter
+          for (let i = 7; i >= 0; i--) {
+            msg[i] = c & 0xff
+            c = Math.floor(c / 256)
+          }
+          const sig = new Uint8Array(await crypto.subtle.sign('HMAC', cryptoKey, msg))
+          const offset = sig[19] & 0xf
+          const code =
+            (((sig[offset] & 0x7f) << 24) | (sig[offset + 1] << 16) | (sig[offset + 2] << 8) | sig[offset + 3]) %
+            1_000_000
+          if (code.toString().padStart(6, '0') === candidate.trim()) return true
+        }
+        return false
+      }
+
+      const TOTP_SECRET = 'JBSWY3DPEHPK3PXP'
+
+      document.getElementById('loginForm').addEventListener('submit', async (e) => {
+        e.preventDefault()
+        const otp = document.getElementById('otp').value
+        const result = document.getElementById('result')
+
+        result.className = ''
+        result.style.display = 'none'
+
+        if (!/^\d{6}$/.test(otp)) {
+          result.textContent = 'OTP must be exactly 6 digits.'
+          result.className = 'error'
+          result.style.display = 'block'
+          return
+        }
+
+        const valid = await validateTotp(TOTP_SECRET, otp)
+        if (valid) {
+          result.textContent = '✓ Code accepted!'
+          result.className = 'success'
+          result.style.display = 'block'
+          document.getElementById('loginForm').reset()
+        } else {
+          result.textContent = 'Invalid or expired OTP. Try again.'
+          result.className = 'error'
+          result.style.display = 'block'
+        }
+      })
+    </script>
+  </body>
+</html>

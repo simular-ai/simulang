@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>File Upload Demo</title>
+    <style>
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        background: #f0f2f5;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #1a1a2e;
+      }
+
+      .card {
+        background: #fff;
+        border-radius: 12px;
+        box-shadow: 0 4px 24px rgba(0, 0, 0, 0.1);
+        padding: 2.5rem 2rem;
+        width: 100%;
+        max-width: 420px;
+      }
+
+      .logo {
+        text-align: center;
+        margin-bottom: 1.5rem;
+      }
+
+      .logo svg {
+        width: 48px;
+        height: 48px;
+      }
+
+      h1 {
+        font-size: 1.4rem;
+        font-weight: 700;
+        text-align: center;
+        margin-bottom: 0.25rem;
+      }
+
+      .subtitle {
+        text-align: center;
+        font-size: 0.875rem;
+        color: #666;
+        margin-bottom: 1.75rem;
+      }
+
+      .label-text {
+        display: block;
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: #444;
+        margin-bottom: 0.55rem;
+        letter-spacing: 0.02em;
+      }
+
+      .file-zone {
+        display: block;
+        border: 2px dashed #c7d2fe;
+        border-radius: 10px;
+        padding: 1.5rem 1rem;
+        text-align: center;
+        cursor: pointer;
+        background: #fafbff;
+        transition:
+          border-color 0.15s,
+          background 0.15s;
+      }
+
+      .file-zone:hover {
+        border-color: #818cf8;
+        background: #f5f3ff;
+      }
+
+      .file-zone .hint {
+        font-size: 0.85rem;
+        color: #6b7280;
+      }
+
+      .file-zone .hint strong {
+        color: #4f46e5;
+      }
+
+      input[type='file'] {
+        width: 100%;
+        margin-top: 0.75rem;
+        font-size: 0.85rem;
+      }
+
+      #result {
+        margin-top: 1.5rem;
+        padding: 0.95rem 1rem;
+        border-radius: 8px;
+        font-size: 0.9rem;
+        display: none;
+        line-height: 1.45;
+      }
+
+      #result.success {
+        background: #d1fae5;
+        color: #065f46;
+        border: 1px solid #6ee7b7;
+      }
+
+      #result.error {
+        background: #fee2e2;
+        color: #991b1b;
+        border: 1px solid #fca5a5;
+      }
+
+      #result .filename {
+        font-family: 'SF Mono', 'Fira Code', monospace;
+        font-weight: 600;
+      }
+
+      .reset-btn {
+        margin-top: 1rem;
+        width: 100%;
+        padding: 0.6rem;
+        background: transparent;
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+        color: #444;
+        font-size: 0.85rem;
+        cursor: pointer;
+        display: none;
+      }
+
+      .reset-btn:hover {
+        background: #f3f4f6;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="logo">
+        <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect width="48" height="48" rx="12" fill="#4f46e5" />
+          <path d="M24 14l-8 8h5v10h6V22h5l-8-8zm-12 22h24v2H12v-2z" fill="white" />
+        </svg>
+      </div>
+
+      <h1>File Upload Demo</h1>
+      <p class="subtitle">Pick a file to "upload" — handled entirely in the browser</p>
+
+      <label class="file-zone" for="fileInput">
+        <span class="label-text">Choose File</span>
+        <p class="hint">
+          Click to pick a file via the OS file picker.<br />Selected file is read locally —
+          <strong>nothing is sent over the network.</strong>
+        </p>
+        <input type="file" id="fileInput" name="fileInput" title="Choose File" />
+      </label>
+
+      <div id="result"></div>
+      <button id="resetBtn" class="reset-btn" type="button">Clear selection</button>
+    </div>
+
+    <script>
+      const fileInput = document.getElementById('fileInput')
+      const result = document.getElementById('result')
+      const resetBtn = document.getElementById('resetBtn')
+
+      function fmtBytes(n) {
+        if (n < 1024) return `${n} bytes`
+        if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+        return `${(n / 1024 / 1024).toFixed(2)} MB`
+      }
+
+      fileInput.addEventListener('change', (e) => {
+        const file = e.target.files && e.target.files[0]
+        result.className = ''
+        result.style.display = 'none'
+        resetBtn.style.display = 'none'
+
+        if (!file) {
+          result.textContent = 'No file selected.'
+          result.className = 'error'
+          result.style.display = 'block'
+          return
+        }
+
+        result.innerHTML =
+          `<strong>✓ Upload complete</strong><br/>` +
+          `File: <span class="filename">${file.name}</span><br/>` +
+          `Size: ${fmtBytes(file.size)}<br/>` +
+          `Type: ${file.type || 'unknown'}`
+        result.className = 'success'
+        result.style.display = 'block'
+        resetBtn.style.display = 'block'
+      })
+
+      resetBtn.addEventListener('click', () => {
+        fileInput.value = ''
+        result.style.display = 'none'
+        resetBtn.style.display = 'none'
+      })
+    </script>
+  </body>
+</html>

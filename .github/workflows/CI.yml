@@ -1,0 +1,125 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - '*'
+    paths-ignore:
+      - '**/*.md'
+      - LICENSE
+      - '**/*.gitignore'
+      - .vscode/**
+      - .github/dependabot.yml
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        env:
+          GIT_CONFIG_GLOBAL: ${{ runner.temp }}/.gitconfig-blank # Create a blank gitconfig file in the temp directory. Ensures local gitconfig is not used.
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint -- --deny-warnings
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Smoke test (--help)
+        run: node ./dist/bin/simulang.js --help
+
+      - name: Smoke test (--version)
+        run: node ./dist/bin/simulang.js --version
+
+      - name: Smoke test (simulang run hello.ts)
+        run: node ./dist/bin/simulang.js run examples/hello.ts
+
+  publish:
+    name: Publish
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write # create the GitHub Release for this tag
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        env:
+          GIT_CONFIG_GLOBAL: ${{ runner.temp }}/.gitconfig-blank # Create a blank gitconfig file in the temp directory. Ensures local gitconfig is not used.
+
+      # `registry-url` makes setup-node write a ~/.npmrc with
+      # `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}`, so the publish
+      # step below picks up the NPM_TOKEN secret automatically.
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24
+          cache: npm
+          registry-url: 'https://registry.npmjs.org/'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Determine dist-tag from git tag
+        id: dist-tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG_NAME="${GITHUB_REF#refs/tags/}"
+          TAG_VERSION="${TAG_NAME#v}"
+          if echo "$TAG_VERSION" | grep -Eq "^[0-9]+\.[0-9]+\.[0-9]+$"; then
+            echo "dist-tag=latest" >> "$GITHUB_OUTPUT"
+          elif echo "$TAG_VERSION" | grep -Eq "^[0-9]+\.[0-9]+\.[0-9]+-.+"; then
+            echo "dist-tag=next" >> "$GITHUB_OUTPUT"
+          else
+            echo "Tag '$TAG_NAME' is not a release tag (expected vX.Y.Z or vX.Y.Z-prerelease); aborting." >&2
+            exit 1
+          fi
+
+      - name: Publish to npmjs.org
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          npm publish \
+            --access public \
+            --tag "${{ steps.dist-tag.outputs.dist-tag }}"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.ref_name }}
+          PRERELEASE_FLAG: ${{ steps.dist-tag.outputs.dist-tag == 'next' && '--prerelease' || '' }}
+        run: |
+          gh release create "$TAG_NAME" \
+            --title "$TAG_NAME" \
+            --generate-notes \
+            $PRERELEASE_FLAG
