@@ -36,8 +36,8 @@
     "prepack": "npm run build"
   },
   "devDependencies": {
-    "@types/node": "^25.6.0",
-    "oxlint": "^1.59.0",
+    "@types/node": "^25.8.0",
+    "oxlint": "^1.65.0",
     "prettier": "^3.8.2",
     "typescript": "^6.0.3"
   },
