@@ -25,7 +25,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@simular-ai/simulang-js": ">=0.0.1"
+    "@simular-ai/simulang-js": ">=10.1.0"
   },
   "scripts": {
     "build": "node -e \"require('node:fs').rmSync('./dist', { recursive: true, force: true })\" && tsc && node -e \"require('node:fs').chmodSync('./dist/bin/simulang.js', 0o755)\"",
