@@ -6,6 +6,9 @@
   "bin": {
     "simulang": "dist/bin/simulang.js"
   },
+  "exports": {
+    "./structural_output": "./dist/src/structural_output.js"
+  },
   "engines": {
     "node": ">= 22.18"
   },
@@ -33,7 +36,8 @@
     "format": "prettier . -w",
     "lint": "oxlint .",
     "postinstall": "node scripts/postinstall.mjs",
-    "prepack": "npm run build"
+    "prepack": "npm run build",
+    "prepare": "npm run build"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
