@@ -93,6 +93,57 @@ simulang run <script>
 
 `simulang run` prints a warning to stderr when `OPENROUTER_API_KEY` is unset, but does not refuse to run — scripts that don't hit hosted services work without it.
 
+## Using simulang as a library
+
+The package also exports one primitive for scripts and other programs to import
+directly, without the CLI:
+
+```js
+import { structuralOutput } from '@simular-ai/simulang/structural_output'
+
+const out = await structuralOutput({
+  prompt: 'You are playing Minecraft.',
+  state: { goal: 'chop wood', nearby: ['wood 5 blocks away'] },
+  schema: {
+    type: 'object',
+    properties: {
+      operation: {
+        type: 'string',
+        description: 'The single next thing to do.',
+        oneOf: [
+          { const: 'GO_TO', description: 'Walk to a kind of block.' },
+          { const: 'DONE', description: 'The goal has been met.' },
+        ],
+      },
+    },
+  },
+  provider: 'typesafe', // or 'openrouter'
+})
+// { operation: 'GO_TO' }  — or { error, retry } when the call failed
+```
+
+Three kinds of property map onto TypeSafe's three question types, and the
+`typesafe` provider (Jev) answers each as its own question about the shared
+state:
+
+| property                                                                                          | TypeSafe question | answer                                        |
+| ------------------------------------------------------------------------------------------------- | ----------------- | --------------------------------------------- |
+| `type: 'string'` with `oneOf: [{ const, description }]`                                           | Choice            | the chosen `const`                            |
+| `type: 'boolean'`, optional `oneOf` for what true and false mean                                  | Noul              | `true` if the yes probability is at least 0.5 |
+| `type: 'integer'` with `minimum` and `maximum` (2 to 10 levels), optional `oneOf` describing each | Score             | the most likely level, as an integer          |
+
+`openrouter` gets the same schema as a strict `json_schema` response format,
+with the `oneOf` descriptions folded into each property's description. A
+schema with any other kind of property — a free string, a float, an array —
+is answered by OpenRouter whichever provider was asked for. Pass
+`options: { fallback: false }` to get an error rather than the switch;
+`canSatisfy(provider, schema)` tells you in advance.
+
+`options` also takes `timeoutMs` (60000), and for OpenRouter `reasoningEffort`
+('low'), `maxTokens` (4000) and `temperature` (0). Keys are read from
+`~/.typesafe-key` and `~/.openrouter-key` (mode 600), falling back to
+`TYPESAFE_API_KEY` / `OPENROUTER_API_KEY`.
+
 ## Development
 
 ```bash
