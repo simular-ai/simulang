@@ -122,12 +122,20 @@ const out = await structuralOutput({
 // { operation: 'GO_TO' }  — or { error, retry } when the call failed
 ```
 
-A property is usually a choice: a string with `oneOf: [{ const, description }]`.
-The `typesafe` provider (Jev) answers each property as its own question about
-the shared state; `openrouter` gets the same schema as a strict `json_schema`
-response format. TypeSafe has a fixed set of question types, so a schema with
-any property that is not a choice — a number, a free string, an array — is
-answered by OpenRouter instead, whichever provider was asked for. Pass
+Three kinds of property map onto TypeSafe's three question types, and the
+`typesafe` provider (Jev) answers each as its own question about the shared
+state:
+
+| property                                                                                          | TypeSafe question | answer                                        |
+| ------------------------------------------------------------------------------------------------- | ----------------- | --------------------------------------------- |
+| `type: 'string'` with `oneOf: [{ const, description }]`                                           | Choice            | the chosen `const`                            |
+| `type: 'boolean'`, optional `oneOf` for what true and false mean                                  | Noul              | `true` if the yes probability is at least 0.5 |
+| `type: 'integer'` with `minimum` and `maximum` (2 to 10 levels), optional `oneOf` describing each | Score             | the most likely level, as an integer          |
+
+`openrouter` gets the same schema as a strict `json_schema` response format,
+with the `oneOf` descriptions folded into each property's description. A
+schema with any other kind of property — a free string, a float, an array —
+is answered by OpenRouter whichever provider was asked for. Pass
 `options: { fallback: false }` to get an error rather than the switch;
 `canSatisfy(provider, schema)` tells you in advance.
 

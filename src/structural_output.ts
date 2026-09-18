@@ -17,18 +17,37 @@ import { homedir } from 'node:os'
 
 export type Provider = 'typesafe' | 'openrouter'
 
+/** One of a fixed set of named options. */
 export interface ChoiceProperty {
   type: 'string'
   description?: string
   oneOf: Array<{ const: string; description?: string }>
 }
 
-/** Any other JSON Schema for a property — a number, a free string, an array. */
+/** Yes or no. `oneOf` may say what a true and a false mean. */
+export interface BooleanProperty {
+  type: 'boolean'
+  description?: string
+  oneOf?: Array<{ const: boolean; description?: string }>
+}
+
+/** A position on an ordered scale, `minimum` to `maximum`, 2 to 10 levels. `oneOf` may describe each level. */
+export interface RangeProperty {
+  type: 'integer'
+  description?: string
+  minimum: number
+  maximum: number
+  oneOf?: Array<{ const: number; description?: string }>
+}
+
+/** Any other JSON Schema for a property — a free string, a float, an array. */
 export type JsonSchema = Record<string, unknown>
+
+export type Property = ChoiceProperty | BooleanProperty | RangeProperty | JsonSchema
 
 export interface Schema {
   type: 'object'
-  properties: Record<string, ChoiceProperty | JsonSchema>
+  properties: Record<string, Property>
 }
 
 export interface Options {
@@ -104,23 +123,38 @@ export function key(provider: Provider): { key: string } | { error: string } {
   }
 }
 
-const isChoice = (prop: ChoiceProperty | JsonSchema): prop is ChoiceProperty =>
+const isChoice = (prop: Property): prop is ChoiceProperty =>
   prop.type === 'string' &&
   Array.isArray(prop.oneOf) &&
   prop.oneOf.length > 0 &&
   prop.oneOf.every((o) => typeof (o as { const?: unknown }).const === 'string')
 
+const isBoolean = (prop: Property): prop is BooleanProperty => prop.type === 'boolean'
+
+// TypeSafe's Score takes 2 to 10 levels.
+const isRange = (prop: Property): prop is RangeProperty =>
+  prop.type === 'integer' &&
+  Number.isInteger(prop.minimum) &&
+  Number.isInteger(prop.maximum) &&
+  (prop.maximum as number) - (prop.minimum as number) >= 1 &&
+  (prop.maximum as number) - (prop.minimum as number) <= 9
+
 const options = (prop: ChoiceProperty): Record<string, string> =>
   Object.fromEntries(prop.oneOf.map((o) => [o.const, o.description ?? '']))
 
+const described = (prop: BooleanProperty | RangeProperty, value: boolean | number): string | undefined =>
+  (prop.oneOf as Array<{ const: unknown; description?: string }> | undefined)?.find((o) => o.const === value)
+    ?.description
+
 /**
- * Can this provider answer this schema at all? TypeSafe has a fixed set of
- * question types and this binding uses one of them, Choice, so every property
- * has to be a choice. OpenRouter takes any JSON Schema.
+ * Can this provider answer this schema at all? TypeSafe has three question
+ * types — Choice, Noul (yes/no) and Score (an ordered scale) — so every
+ * property has to be a choice, a boolean or a small integer range. OpenRouter
+ * takes any JSON Schema.
  */
 export function canSatisfy(provider: Provider, schema: Schema): boolean {
   if (provider === 'openrouter') return true
-  return Object.values(schema.properties).every(isChoice)
+  return Object.values(schema.properties).every((p) => isChoice(p) || isBoolean(p) || isRange(p))
 }
 
 export async function structuralOutput({
@@ -133,7 +167,11 @@ export async function structuralOutput({
 }: StructuralOutputRequest): Promise<Answer | Failure> {
   const opts = { ...DEFAULTS, ...given }
   if (!canSatisfy(provider, schema)) {
-    if (!opts.fallback) return { error: `${provider} cannot answer this schema: every property must be a choice` }
+    if (!opts.fallback) {
+      return {
+        error: `${provider} cannot answer this schema: every property must be a choice, a boolean or an integer range`,
+      }
+    }
     // The model was chosen for the provider, so it does not carry over.
     provider = 'openrouter'
     model = undefined
@@ -162,46 +200,76 @@ export async function structuralOutput({
       error: `${provider} ${r.status}: ${(await r.text()).slice(0, 200)}`,
     }
   }
-  return send.read(await r.json(), chosen)
+  return send.read(await r.json(), chosen, schema)
 }
 
 interface Wire {
   body(prompt: string, state: unknown, schema: Schema, model: string, opts: Required<Options>): unknown
-  read(body: unknown, model: string): Answer | Failure
+  read(body: unknown, model: string, schema: Schema): Answer | Failure
 }
 
+// TypeSafe answers several typed questions about one shared state at once: a
+// choice is a Choice, a boolean a Noul, an integer range a Score whose levels
+// are the values in order.
 const viaTypesafe: Wire = {
   body(prompt, state, schema, model) {
     const questions: Record<string, unknown> = {}
     for (const [name, prop] of Object.entries(schema.properties)) {
-      if (!isChoice(prop)) continue // canSatisfy has already said no
-      questions[name] = {
-        type: 'choice',
-        instructions: `${prop.description ?? ''} ${prompt}`.trim(),
-        criteria: options(prop),
+      const instructions = `${prop.description ?? ''} ${prompt}`.trim()
+      if (isChoice(prop)) {
+        questions[name] = { type: 'choice', instructions, criteria: options(prop) }
+      } else if (isBoolean(prop)) {
+        const yes = described(prop, true)
+        const no = described(prop, false)
+        questions[name] = {
+          type: 'noul',
+          instructions,
+          ...(yes || no ? { criteria: { true: yes ?? 'yes', false: no ?? 'no' } } : {}),
+        }
+      } else if (isRange(prop)) {
+        const criteria: string[] = []
+        for (let v = prop.minimum; v <= prop.maximum; v++) criteria.push(described(prop, v) ?? String(v))
+        questions[name] = { type: 'score', instructions, criteria }
       }
+      // anything else: canSatisfy has already said no
     }
     return { state, questions, model }
   },
-  read(body) {
-    const answers = ((body as { answers?: Record<string, { choice?: string }> }).answers ?? {}) as Record<
-      string,
-      { choice?: string }
-    >
+  read(body, _model, schema) {
+    type Raw = { choice?: string; noul?: number; score?: number; probabilities?: Record<string, number> }
+    const answers = ((body as { answers?: Record<string, Raw> }).answers ?? {}) as Record<string, Raw>
     const out: Answer = {}
-    for (const [name, v] of Object.entries(answers)) if (v?.choice) out[name] = v.choice
+    for (const [name, v] of Object.entries(answers)) {
+      const prop = schema.properties[name]
+      if (!prop) continue
+      if (isChoice(prop) && v?.choice) out[name] = v.choice
+      else if (isBoolean(prop) && typeof v?.noul === 'number') out[name] = v.noul >= 0.5
+      else if (isRange(prop) && v) {
+        // The most likely level, not the expected score: an integer was asked for.
+        const levels = Object.entries(v.probabilities ?? {})
+        const best = levels.length
+          ? Number(levels.reduce((a, b) => (b[1] > a[1] ? b : a))[0])
+          : Math.round(v.score ?? 0)
+        out[name] = prop.minimum + best
+      }
+    }
     return out
   },
 }
 
 // A chat model gets choices flattened to enums, which is the nearest thing it
-// has to a Choice; any other property goes through as the JSON Schema it is.
+// has to a Choice; any other property goes through as the JSON Schema it is,
+// with `oneOf` descriptions folded into the description so nothing is lost.
 const viaOpenrouter: Wire = {
   body(prompt, state, schema, model, opts) {
     const properties: Record<string, unknown> = {}
     for (const [name, prop] of Object.entries(schema.properties)) {
       if (!isChoice(prop)) {
-        properties[name] = prop
+        const { oneOf, ...rest } = prop as JsonSchema & { oneOf?: Array<{ const: unknown; description?: string }> }
+        const notes = (oneOf ?? []).map((o) => `${String(o.const)}: ${o.description ?? ''}`)
+        properties[name] = notes.length
+          ? { ...rest, description: [rest.description, ...notes].filter(Boolean).join(' | ') }
+          : prop
         continue
       }
       const choices = options(prop)
