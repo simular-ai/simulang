@@ -67,7 +67,10 @@ export function key(provider: Provider): { key: string } | { error: string } {
   const path = `${homedir()}/${p.file}`
   try {
     // Refuse a key anyone else on this machine can read, the way ssh does.
-    if (statSync(path).mode & 0o077) return { error: `~/${p.file} is readable by others — chmod 600 it` }
+    // Windows has no mode bits worth reading, so the check is POSIX only.
+    if (process.platform !== 'win32' && statSync(path).mode & 0o077) {
+      return { error: `~/${p.file} is readable by others — chmod 600 it` }
+    }
     return { key: readFileSync(path, 'utf8').trim() }
   } catch {
     const fromEnv = process.env[p.env]

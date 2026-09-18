@@ -93,6 +93,41 @@ simulang run <script>
 
 `simulang run` prints a warning to stderr when `OPENROUTER_API_KEY` is unset, but does not refuse to run — scripts that don't hit hosted services work without it.
 
+## Using simulang as a library
+
+The package also exports one primitive for scripts and other programs to import
+directly, without the CLI:
+
+```js
+import { structuralOutput } from '@simular-ai/simulang/structural_output'
+
+const out = await structuralOutput({
+  prompt: 'You are playing Minecraft.',
+  state: { goal: 'chop wood', nearby: ['wood 5 blocks away'] },
+  schema: {
+    type: 'object',
+    properties: {
+      operation: {
+        type: 'string',
+        description: 'The single next thing to do.',
+        oneOf: [
+          { const: 'GO_TO', description: 'Walk to a kind of block.' },
+          { const: 'DONE', description: 'The goal has been met.' },
+        ],
+      },
+    },
+  },
+  provider: 'typesafe', // or 'openrouter'
+})
+// { operation: 'GO_TO' }  — or { error, retry } when the call failed
+```
+
+Every property is a choice: a string with `oneOf: [{ const, description }]`.
+The `typesafe` provider (Jev) answers each property as its own question about
+the shared state; `openrouter` gets the same schema as a strict `json_schema`
+response format. Keys are read from `~/.typesafe-key` and `~/.openrouter-key`
+(mode 600), falling back to `TYPESAFE_API_KEY` / `OPENROUTER_API_KEY`.
+
 ## Development
 
 ```bash
