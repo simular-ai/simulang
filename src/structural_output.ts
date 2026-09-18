@@ -23,9 +23,25 @@ export interface ChoiceProperty {
   oneOf: Array<{ const: string; description?: string }>
 }
 
+/** Any other JSON Schema for a property — a number, a free string, an array. */
+export type JsonSchema = Record<string, unknown>
+
 export interface Schema {
   type: 'object'
-  properties: Record<string, ChoiceProperty>
+  properties: Record<string, ChoiceProperty | JsonSchema>
+}
+
+export interface Options {
+  /** Milliseconds before a call is given up on. Default 60000. */
+  timeoutMs?: number
+  /** When the chosen provider cannot answer this schema, use one that can. Default true. */
+  fallback?: boolean
+  /** OpenRouter only. Gemini refuses to turn reasoning off, so this is how much to pay for. Default 'low'. */
+  reasoningEffort?: 'low' | 'medium' | 'high'
+  /** OpenRouter only. Default 4000; covers the reasoning as well as the answer. */
+  maxTokens?: number
+  /** OpenRouter only. Default 0. */
+  temperature?: number
 }
 
 export interface StructuralOutputRequest {
@@ -34,11 +50,20 @@ export interface StructuralOutputRequest {
   schema: Schema
   provider?: Provider
   model?: string
+  options?: Options
+}
+
+const DEFAULTS: Required<Options> = {
+  timeoutMs: 60000,
+  fallback: true,
+  reasoningEffort: 'low',
+  maxTokens: 4000,
+  temperature: 0,
 }
 
 /** `retry` is true for the kind of failure that answers differently next time: network, 5xx, 429. */
 export type Failure = { error: string; retry?: boolean }
-export type Answer = Record<string, string>
+export type Answer = Record<string, unknown>
 
 const PROVIDERS: Record<Provider, { url: string; env: string; file: string; model: string }> = {
   typesafe: {
@@ -79,8 +104,24 @@ export function key(provider: Provider): { key: string } | { error: string } {
   }
 }
 
+const isChoice = (prop: ChoiceProperty | JsonSchema): prop is ChoiceProperty =>
+  prop.type === 'string' &&
+  Array.isArray(prop.oneOf) &&
+  prop.oneOf.length > 0 &&
+  prop.oneOf.every((o) => typeof (o as { const?: unknown }).const === 'string')
+
 const options = (prop: ChoiceProperty): Record<string, string> =>
   Object.fromEntries(prop.oneOf.map((o) => [o.const, o.description ?? '']))
+
+/**
+ * Can this provider answer this schema at all? TypeSafe has a fixed set of
+ * question types and this binding uses one of them, Choice, so every property
+ * has to be a choice. OpenRouter takes any JSON Schema.
+ */
+export function canSatisfy(provider: Provider, schema: Schema): boolean {
+  if (provider === 'openrouter') return true
+  return Object.values(schema.properties).every(isChoice)
+}
 
 export async function structuralOutput({
   prompt,
@@ -88,7 +129,15 @@ export async function structuralOutput({
   schema,
   provider = 'typesafe',
   model,
+  options: given,
 }: StructuralOutputRequest): Promise<Answer | Failure> {
+  const opts = { ...DEFAULTS, ...given }
+  if (!canSatisfy(provider, schema)) {
+    if (!opts.fallback) return { error: `${provider} cannot answer this schema: every property must be a choice` }
+    // The model was chosen for the provider, so it does not carry over.
+    provider = 'openrouter'
+    model = undefined
+  }
   const p = PROVIDERS[provider]
   const k = key(provider)
   if ('error' in k) return { error: k.error }
@@ -97,10 +146,10 @@ export async function structuralOutput({
   let r: Response
   try {
     r = await fetch(p.url, {
-      signal: AbortSignal.timeout(60000),
+      signal: AbortSignal.timeout(opts.timeoutMs),
       method: 'POST',
       headers: { authorization: `Bearer ${k.key}`, 'content-type': 'application/json' },
-      body: JSON.stringify(send.body(prompt, state, schema, chosen)),
+      body: JSON.stringify(send.body(prompt, state, schema, chosen, opts)),
     })
   } catch (e) {
     return { retry: true, error: `${provider} unreachable: ${String((e as Error)?.message ?? e)}` }
@@ -117,7 +166,7 @@ export async function structuralOutput({
 }
 
 interface Wire {
-  body(prompt: string, state: unknown, schema: Schema, model: string): unknown
+  body(prompt: string, state: unknown, schema: Schema, model: string, opts: Required<Options>): unknown
   read(body: unknown, model: string): Answer | Failure
 }
 
@@ -125,6 +174,7 @@ const viaTypesafe: Wire = {
   body(prompt, state, schema, model) {
     const questions: Record<string, unknown> = {}
     for (const [name, prop] of Object.entries(schema.properties)) {
+      if (!isChoice(prop)) continue // canSatisfy has already said no
       questions[name] = {
         type: 'choice',
         instructions: `${prop.description ?? ''} ${prompt}`.trim(),
@@ -144,26 +194,30 @@ const viaTypesafe: Wire = {
   },
 }
 
+// A chat model gets choices flattened to enums, which is the nearest thing it
+// has to a Choice; any other property goes through as the JSON Schema it is.
 const viaOpenrouter: Wire = {
-  body(prompt, state, schema, model) {
+  body(prompt, state, schema, model, opts) {
     const properties: Record<string, unknown> = {}
     for (const [name, prop] of Object.entries(schema.properties)) {
-      const opts = options(prop)
+      if (!isChoice(prop)) {
+        properties[name] = prop
+        continue
+      }
+      const choices = options(prop)
       properties[name] = {
         type: 'string',
-        enum: Object.keys(opts),
-        description: [prop.description, ...Object.entries(opts).map(([k, v]) => `${k}: ${v}`)]
+        enum: Object.keys(choices),
+        description: [prop.description, ...Object.entries(choices).map(([k, v]) => `${k}: ${v}`)]
           .filter(Boolean)
           .join(' | '),
       }
     }
     return {
       model,
-      // Gemini refuses to have reasoning turned off ("Reasoning is mandatory
-      // for this endpoint"), so the only lever is how much of it to pay for.
-      reasoning: { effort: 'low' },
-      max_tokens: 4000,
-      temperature: 0,
+      reasoning: { effort: opts.reasoningEffort },
+      max_tokens: opts.maxTokens,
+      temperature: opts.temperature,
       response_format: {
         type: 'json_schema',
         json_schema: {

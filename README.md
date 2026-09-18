@@ -122,11 +122,19 @@ const out = await structuralOutput({
 // { operation: 'GO_TO' }  — or { error, retry } when the call failed
 ```
 
-Every property is a choice: a string with `oneOf: [{ const, description }]`.
+A property is usually a choice: a string with `oneOf: [{ const, description }]`.
 The `typesafe` provider (Jev) answers each property as its own question about
 the shared state; `openrouter` gets the same schema as a strict `json_schema`
-response format. Keys are read from `~/.typesafe-key` and `~/.openrouter-key`
-(mode 600), falling back to `TYPESAFE_API_KEY` / `OPENROUTER_API_KEY`.
+response format. TypeSafe has a fixed set of question types, so a schema with
+any property that is not a choice — a number, a free string, an array — is
+answered by OpenRouter instead, whichever provider was asked for. Pass
+`options: { fallback: false }` to get an error rather than the switch;
+`canSatisfy(provider, schema)` tells you in advance.
+
+`options` also takes `timeoutMs` (60000), and for OpenRouter `reasoningEffort`
+('low'), `maxTokens` (4000) and `temperature` (0). Keys are read from
+`~/.typesafe-key` and `~/.openrouter-key` (mode 600), falling back to
+`TYPESAFE_API_KEY` / `OPENROUTER_API_KEY`.
 
 ## Development
 
