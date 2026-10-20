@@ -37,9 +37,9 @@
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
-    "oxlint": "^1.59.0",
-    "prettier": "^3.8.2",
-    "typescript": "^6.0.3"
+    "oxlint": "^1.87.0",
+    "prettier": "^3.9.10",
+    "typescript": "^7.0.2"
   },
   "prettier": {
     "printWidth": 120,
